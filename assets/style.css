@@ -1,0 +1,200 @@
+/* Global Settings */
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
+
+:root {
+    --bg-dark: #0f0f1a;
+    --bg-gradient-end: #1a1a2e;
+    --accent-cyan: #00d4ff;
+    --accent-blue: #0099ff;
+    --text-primary: #FFFFFF;
+    --text-secondary: rgba(255, 255, 255, 0.6);
+    --card-bg: rgba(255, 255, 255, 0.03);
+    --card-border: rgba(255, 255, 255, 0.08);
+}
+
+.stApp {
+    background: linear-gradient(180deg, var(--bg-dark) 0%, var(--bg-gradient-end) 100%);
+    font-family: 'Roboto', sans-serif;
+}
+
+/* Hide Streamlit default elements */
+header[data-testid="stHeader"],
+footer {
+    display: none !important;
+}
+
+/* Minimize top padding for main container */
+.main .block-container {
+    padding-top: 1rem !important;
+    padding-bottom: 2rem !important;
+    max-width: 100% !important;
+}
+
+/* Custom Header */
+.brand-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    margin-bottom: 1rem;
+}
+
+.brand-logo {
+    width: 40px;
+    height: 40px;
+    background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-blue) 100%);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+}
+
+.brand-text h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: white;
+}
+
+.brand-text p {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+/* Cards */
+div.css-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 16px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+/* Video Feed Container */
+.video-container {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 16px 16px 0 0;
+    /* Top corners only */
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 0 !important;
+    /* Force no bottom margin */
+}
+
+/* Specific target for the video header to look like a bar */
+.video-header {
+    display: flex;
+    justify-content: space-between;
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Pull the next element (Streamlit component) UP */
+div[data-testid="stMarkdownContainer"]+div {
+    margin-top: -1rem;
+    /* Pull video up */
+}
+
+.live-indicator {
+    color: #2ed573;
+    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* Status Big Card */
+.status-big-icon {
+    font-size: 4rem;
+    color: var(--accent-blue);
+    margin-bottom: 0.5rem;
+}
+
+.status-text-large {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: white;
+    text-transform: uppercase;
+}
+
+/* Metrics */
+.metric-box {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 12px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.metric-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    letter-spacing: 1px;
+    margin-bottom: 0.25rem;
+}
+
+.metric-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--accent-cyan);
+}
+
+.metric-value.alert {
+    color: #ff4757;
+}
+
+/* --------------------------------------------------------------------------
+   STREAMLIT WIDGET OVERRIDES - HIGH SPECIFICITY
+   -------------------------------------------------------------------------- */
+
+/* Button Styling */
+.stButton>button {
+    background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-blue) 100%) !important;
+    border: none !important;
+    color: white !important;
+    font-weight: 600 !important;
+}
+
+/* Slider Customization */
+
+/* 1. Track: Cyan */
+div[data-testid="stSlider"]>div>div>div>div {
+    background-color: var(--accent-cyan) !important;
+}
+
+/* 2. Thumb: Grey/Silver (Targeting multiple potential structures) */
+div[data-testid="stSlider"]>div>div>div[role="slider"],
+div[data-testid="stSlider"] .stSliderThumb,
+div[data-baseweb="slider"] div[role="slider"] {
+    background-color: #bdc3c7 !important;
+    /* Grey */
+    border-color: #bdc3c7 !important;
+    box-shadow: none !important;
+    z-index: 99 !important;
+    /* Ensure it's on top */
+}
+
+/* 3. Text Value Color: Cyan (The number above the thumb) */
+div[data-testid="stSlider"] div[data-testid="stMarkdownContainer"] p {
+    color: var(--accent-cyan) !important;
+}
+
+/* 4. Ticks: Cyan */
+div[data-testid="stSliderTickBar"]>div {
+    background-color: var(--accent-cyan) !important;
+}
+
+div[data-testid="stSliderTickBar"]+div {
+    color: var(--accent-cyan) !important;
+}
+
+/* 5. Force override for ANY inline styles Streamlit might inject */
+[data-baseweb="slider"] [role="slider"] {
+    background-color: #bdc3c7 !important;
+}
