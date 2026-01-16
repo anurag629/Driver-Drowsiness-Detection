@@ -6,13 +6,6 @@ import streamlit as st
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration, WebRtcMode
 import cv2
 
-# Try to import MediaPipe for face detection
-try:
-    import mediapipe as mp
-    MEDIAPIPE_AVAILABLE = True
-except ImportError:
-    MEDIAPIPE_AVAILABLE = False
-
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
@@ -25,13 +18,13 @@ st.set_page_config(
 
 # Load CSS
 def load_css(file_name):
-    with open(file_name) as f:
-        st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+    try:
+        with open(file_name) as f:
+            st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+    except FileNotFoundError:
+        pass
 
-try:
-    load_css("assets/style.css")
-except FileNotFoundError:
-    pass
+load_css("assets/style.css")
 
 # Load Audio
 @st.cache_data
@@ -45,103 +38,101 @@ def load_alert_sound():
 
 alert_sound_b64 = load_alert_sound()
 
-# MediaPipe face mesh indices for eyes
-# Left eye indices (from MediaPipe face mesh)
-LEFT_EYE = [362, 385, 387, 263, 373, 380]
-# Right eye indices
-RIGHT_EYE = [33, 160, 158, 133, 153, 144]
+# =============================================================================
+# LOAD OPENCV CASCADE CLASSIFIERS
+# =============================================================================
+@st.cache_resource
+def load_cascades():
+    """Load OpenCV's pre-trained cascade classifiers"""
+    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+    eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_eye.xml')
+    return face_cascade, eye_cascade
+
+FACE_CASCADE, EYE_CASCADE = load_cascades()
 
 # =============================================================================
 # CORE LOGIC
 # =============================================================================
-
-def calculate_ear(eye_points):
-    """Calculate Eye Aspect Ratio using 6 eye landmark points"""
-    # Vertical distances
-    A = np.linalg.norm(eye_points[1] - eye_points[5])
-    B = np.linalg.norm(eye_points[2] - eye_points[4])
-    # Horizontal distance
-    C = np.linalg.norm(eye_points[0] - eye_points[3])
-    # EAR formula
-    ear = (A + B) / (2.0 * C) if C > 0 else 0
-    return ear
 
 class DrowsinessProcessor(VideoProcessorBase):
     def __init__(self):
         self.frame_count = 0
         self.alert_status = False
         self.ear_value = 0.0
-        self.ear_threshold = 0.25
+        self.eye_threshold = 2  # Minimum eyes to detect (2 = both eyes open)
         self.frame_check = 20
-
-        if MEDIAPIPE_AVAILABLE:
-            self.mp_face_mesh = mp.solutions.face_mesh
-            self.face_mesh = self.mp_face_mesh.FaceMesh(
-                max_num_faces=1,
-                refine_landmarks=True,
-                min_detection_confidence=0.5,
-                min_tracking_confidence=0.5
-            )
-        else:
-            self.face_mesh = None
+        self.eyes_detected = 0
 
     def update_settings(self, threshold, frames):
-        self.ear_threshold = threshold
+        self.eye_threshold = threshold
         self.frame_check = frames
 
     def recv(self, frame):
         img = frame.to_ndarray(format="bgr24")
-
-        if not MEDIAPIPE_AVAILABLE or self.face_mesh is None:
-            cv2.putText(img, "Face detection unavailable", (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
-            cv2.putText(img, "Running in demo mode", (10, 60),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
-            return frame.from_ndarray(img, format="bgr24")
-
-        # Convert to RGB for MediaPipe
-        rgb_frame = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        results = self.face_mesh.process(rgb_frame)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
         current_alert = False
-        h, w = img.shape[:2]
+        self.eyes_detected = 0
 
-        if results.multi_face_landmarks:
-            for face_landmarks in results.multi_face_landmarks:
-                # Extract eye landmarks
-                landmarks = face_landmarks.landmark
+        # Detect faces
+        faces = FACE_CASCADE.detectMultiScale(
+            gray,
+            scaleFactor=1.1,
+            minNeighbors=5,
+            minSize=(100, 100)
+        )
 
-                # Get left eye points
-                left_eye_points = np.array([
-                    [landmarks[i].x * w, landmarks[i].y * h] for i in LEFT_EYE
-                ])
+        for (x, y, w, h) in faces:
+            # Draw face rectangle
+            cv2.rectangle(img, (x, y), (x+w, y+h), (255, 255, 0), 2)
 
-                # Get right eye points
-                right_eye_points = np.array([
-                    [landmarks[i].x * w, landmarks[i].y * h] for i in RIGHT_EYE
-                ])
+            # Region of interest for eyes (upper half of face)
+            roi_gray = gray[y:y+int(h*0.65), x:x+w]
+            roi_color = img[y:y+int(h*0.65), x:x+w]
 
-                # Calculate EAR for both eyes
-                left_ear = calculate_ear(left_eye_points)
-                right_ear = calculate_ear(right_eye_points)
-                ear = (left_ear + right_ear) / 2.0
-                self.ear_value = ear
+            # Detect eyes within face region
+            eyes = EYE_CASCADE.detectMultiScale(
+                roi_gray,
+                scaleFactor=1.1,
+                minNeighbors=10,
+                minSize=(25, 25)
+            )
 
-                # Draw eye contours
-                left_eye_int = left_eye_points.astype(np.int32)
-                right_eye_int = right_eye_points.astype(np.int32)
-                cv2.polylines(img, [left_eye_int], True, (0, 255, 0), 1)
-                cv2.polylines(img, [right_eye_int], True, (0, 255, 0), 1)
+            self.eyes_detected = len(eyes)
 
-                # Check for drowsiness
-                if ear < self.ear_threshold:
-                    self.frame_count += 1
-                    if self.frame_count >= self.frame_check:
-                        current_alert = True
-                        cv2.putText(img, "DROWSINESS ALERT!", (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                else:
-                    self.frame_count = 0
+            # Draw eye rectangles
+            for (ex, ey, ew, eh) in eyes:
+                cv2.rectangle(roi_color, (ex, ey), (ex+ew, ey+eh), (0, 255, 0), 2)
+
+            # Calculate pseudo-EAR based on eye detection
+            # If both eyes detected = high EAR (awake), if fewer = low EAR (drowsy)
+            if self.eyes_detected >= 2:
+                self.ear_value = 0.35  # Eyes open
+                self.frame_count = 0
+            elif self.eyes_detected == 1:
+                self.ear_value = 0.22  # One eye detected
+                self.frame_count += 1
+            else:
+                self.ear_value = 0.15  # No eyes detected (closed or looking away)
+                self.frame_count += 1
+
+            # Check for drowsiness
+            if self.frame_count >= self.frame_check:
+                current_alert = True
+                cv2.putText(img, "DROWSINESS ALERT!", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+
+            # Show eye count on frame
+            status_text = f"Eyes: {self.eyes_detected}"
+            cv2.putText(img, status_text, (x, y - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+        # No face detected
+        if len(faces) == 0:
+            cv2.putText(img, "No face detected", (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
+            self.ear_value = 0.0
+            self.frame_count = 0
 
         self.alert_status = current_alert
         return frame.from_ndarray(img, format="bgr24")
@@ -163,9 +154,6 @@ def render_brand_header():
 
 def main():
     render_brand_header()
-
-    if not MEDIAPIPE_AVAILABLE:
-        st.warning("Face detection libraries are not available. Running in demo mode.")
 
     col_video, col_stats = st.columns([2, 1], gap="medium")
 
@@ -199,7 +187,7 @@ def main():
              ear_placeholder = st.empty()
              ear_placeholder.markdown("""
                 <div class="metric-box">
-                    <div class="metric-label">Eye Aspect Ratio</div>
+                    <div class="metric-label">Eye Status</div>
                     <div class="metric-value">--</div>
                 </div>
              """, unsafe_allow_html=True)
@@ -207,7 +195,7 @@ def main():
              alert_count_placeholder = st.empty()
              alert_count_placeholder.markdown("""
                 <div class="metric-box">
-                    <div class="metric-label">Total Alerts</div>
+                    <div class="metric-label">Eyes Detected</div>
                     <div class="metric-value">0</div>
                 </div>
              """, unsafe_allow_html=True)
@@ -221,11 +209,11 @@ def main():
         """, unsafe_allow_html=True)
 
         with st.expander("Configuration", expanded=True):
-            threshold = st.slider("EAR Sensitivity", 0.15, 0.35, 0.25, 0.01)
-            frames = st.slider("Alert Delay (frames)", 5, 50, 20)
+            frames = st.slider("Alert Delay (frames)", 5, 50, 20,
+                help="Number of consecutive frames with closed eyes before alert")
 
             if ctx.video_processor:
-                ctx.video_processor.update_settings(threshold, frames)
+                ctx.video_processor.update_settings(2, frames)
 
         if ctx.state.playing:
             start_time = time.time() if 'start_time' not in st.session_state else st.session_state.start_time
@@ -236,10 +224,30 @@ def main():
             while ctx.state.playing:
                 if ctx.video_processor:
                     ear_val = ctx.video_processor.ear_value
+                    eyes = ctx.video_processor.eyes_detected
+
+                    # Update eye status
+                    if eyes >= 2:
+                        status = "Open"
+                        color = "#00d4ff"
+                    elif eyes == 1:
+                        status = "Partial"
+                        color = "#ffa502"
+                    else:
+                        status = "Closed"
+                        color = "#ff4757"
+
                     ear_placeholder.markdown(f"""
                         <div class="metric-box">
-                            <div class="metric-label">Eye Aspect Ratio</div>
-                            <div class="metric-value">{ear_val:.3f}</div>
+                            <div class="metric-label">Eye Status</div>
+                            <div class="metric-value" style="color:{color};">{status}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+
+                    alert_count_placeholder.markdown(f"""
+                        <div class="metric-box">
+                            <div class="metric-label">Eyes Detected</div>
+                            <div class="metric-value">{eyes}</div>
                         </div>
                     """, unsafe_allow_html=True)
 
